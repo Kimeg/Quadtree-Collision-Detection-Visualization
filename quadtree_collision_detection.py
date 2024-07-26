@@ -47,8 +47,7 @@ class Quad:
 					ball.tag = f"{self.path}_{section}"
 
 				self.groups[section] = temp_balls
-				self.quads[section] = Quad(self.balls, self.width/2, self.height/2, x_lower_bound, y_lower_bound, f"{self.path}_{section}")
-
+				self.quads[section] = Quad(temp_balls, self.width/2, self.height/2, x_lower_bound, y_lower_bound, f"{self.path}_{section}")
 		return
 
 	def searchBall(self, ball, depth):
@@ -166,7 +165,7 @@ def main():
 	return
 
 if __name__=="__main__":
-	WIDTH = 1200
+	WIDTH = 800
 	HEIGHT = 800 
 
 	HALF_WIDTH = int(WIDTH/2)
@@ -190,11 +189,11 @@ if __name__=="__main__":
 		PURPLE
 	]
 
-	RADIUS = 8 
-	nBall = 300
+	nBall = 200
+	RADIUS = 10 
 	THRESHOLD = 2 
 	FORCE_SCALER = 5.0
-	LIGHT_DURATION = 0.5
+	LIGHT_DURATION = 0.1
 
 	SECTIONS = {
 		"NW": [0, 0],

@@ -3,207 +3,204 @@ import numpy as np
 import random
 import time
 
-class Quad:
-	def __init__(self, balls, width, height, x_offset, y_offset, path):
-		self.balls = balls 
-		self.path = path 
-		self.quads = {}
-		self.width = width
-		self.height = height 
-		self.x_offset = x_offset
-		self.y_offset = y_offset
-		self.groups = {} 
-
-		self.resetQuadtree()
-		self.generateQuadtree()
-		return
-
-	def resetQuadtree(self):
-		self.groups = {} 
-		self.quads = {}
-		return
-
-	def generateQuadtree(self):
-		for section, boundary in SECTIONS.items():
-
-			x_lower_bound = boundary[0]*self.width + self.x_offset
-			y_lower_bound = boundary[1]*self.height + self.y_offset
-
-			x_upper_bound = x_lower_bound+self.width
-			y_upper_bound = y_lower_bound+self.height
-
-			pg.draw.rect(WINDOW, GREEN, (x_lower_bound, y_lower_bound, self.width, self.height), 1)
-
-			count = 0
-			temp_balls = []
-			for ball in self.balls:	
-				if ball.x>x_lower_bound and ball.x<x_upper_bound and ball.y>y_lower_bound and ball.y<y_upper_bound:
-
-					temp_balls.append(ball)
-					count += 1
-
-			if count>THRESHOLD:
-				for ball in temp_balls:
-					ball.tag = f"{self.path}_{section}"
-
-				self.groups[section] = temp_balls
-				self.quads[section] = Quad(temp_balls, self.width/2, self.height/2, x_lower_bound, y_lower_bound, f"{self.path}_{section}")
-		return
-
-	def searchBall(self, ball, depth):
-		if not self.quads.keys() or len(ball.tag.split("_"))==depth:
-			return
-
-		try:
-			#print(ball.tag, depth, self.quads.keys())
-			self.quads[ball.tag.split("_")[depth]].searchBall(ball, depth+1)
-		except Exception as e:
-			#print(e)
-			return
-
-		if len(ball.tag.split("_"))-2==depth:
-			for other_ball in self.groups[ball.tag.split("_")[depth]]:
-				if other_ball.tag==ball.tag:
-					continue
-
-				pos_1 = np.array([ball.x, ball.y])
-				pos_2 = np.array([other_ball.x, other_ball.y])
-
-				dist = calc_dist(pos_1, pos_2)
-
-				if dist<2*RADIUS:
-					force = pos_1-pos_2
-					norm = np.linalg.norm(force)
-					force /= norm
-					force *= FORCE_SCALER
-
-					ball.update(force)
-					other_ball.update(-force)
-		return
-
 class Ball:
-	def __init__(self, x: float, y: float, color: set):
+	def __init__(self, x, y, radius, color):
 		self.x = x
-		self.y = y 
-		self.vx = np.random.choice([-1,1])*1.5
-		self.vy = np.random.choice([-1,1])*1.5
-		self.color = color 
-		self.tag = None
+		self.y = y
+		self.radius = radius 
+		self.vx = random.choice([-1,1])*0.1
+		self.vy = random.choice([-1,1])*0.1 
+		self.color = color
+		self.tag = ""
 		self.t0 = time.time()
 		return
 
-	def applyForce(self, force):
-		self.vx = force[0]
-		self.vy = force[1]
-		return
+	def is_collided(self, other_ball):
+		x1, y1, x2, y2 = self.x, self.y, other_ball.x, other_ball.y
+		dist = calcDist([x1, y1], [x2, y2])
+		return dist<=self.radius+other_ball.radius
 
-	def fixEdgeCases(self):
-		if self.x>WIDTH:
-			self.x = 0	
-		if self.x<0:
-			self.x = WIDTH 
+	def update(self, other_ball=None):
+		if not other_ball==None:
+			if self.is_collided(other_ball):
+				self.vx = (self.x-other_ball.x)*0.01
+				self.vy = (self.y-other_ball.y)*0.01
+				self.color = RED
+				self.t0 = time.time()
 
-		if self.y>HEIGHT:
-			self.y = 0	
-		if self.y<0:
-			self.y = HEIGHT 
-		return	
-
-	def update(self, force=[0., 0.]):
-
-		if time.time()-self.t0>LIGHT_DURATION:
-			self.color = BEIGE
-
-		if force[0]>0. or force[0]<0. or force[1]>0. or force[1]<0.:
-			self.applyForce(force)
-			self.color = RED
-			self.t0 = time.time()
+		if time.time()-self.t0>0.2:	
+			self.color = WHITE
 
 		self.x += self.vx
 		self.y += self.vy
 
-		self.fixEdgeCases()
+		if self.x<0 or self.x>WIDTH:
+			self.vx *= -1
+		if self.y<0 or self.y>HEIGHT:
+			self.vy *= -1
 		return
 
 	def render(self):
-		pg.draw.circle(WINDOW, self.color, (self.x, self.y), RADIUS, 2)
+		pg.draw.circle(WINDOW, self.color, (self.x, self.y), RADIUS, 1)
 		return
 
-def generate_balls():
-	return [Ball(np.random.random()*WIDTH, np.random.random()*HEIGHT, random.choice(COLORS)) for _ in range(nBall)]
+class Box:
+	def __init__(self, x, y, w, h):
+		self.x = x
+		self.y = y
+		self.w = w 
+		self.h = h
+		return
 
-def calc_dist(v1, v2):
+class Quad:
+	def __init__(self, box, color, limit, depth):
+		self.box = box
+
+		self.color = color
+		self.limit = limit 
+		self.depth = depth 
+		self.reset()
+		return
+
+	def reset(self):
+		self.is_partitioned = False
+		self.balls = []
+		self.sub_quads = {
+			"NW": None,
+			"NE": None,
+			"SW": None,
+			"SE": None,
+		}
+		return
+
+	def inBox(self, ball):
+		x, y, w, h = self.box.x, self.box.y, self.box.w, self.box.h 
+		return (ball.x>x   and
+			    ball.x<x+w and
+			    ball.y>y   and
+			    ball.y<y+h)
+
+	def partition(self):
+		x, y, w, h = self.box.x, self.box.y, self.box.w, self.box.h 
+		self.sub_quads["NW"] = Quad( Box(x,     y,     w/2, h/2), self.color, self.limit, self.depth+1 )
+		self.sub_quads["NE"] = Quad( Box(x+w/2, y,     w/2, h/2), self.color, self.limit, self.depth+1 )
+		self.sub_quads["SW"] = Quad( Box(x,     y+h/2, w/2, h/2), self.color, self.limit, self.depth+1 )
+		self.sub_quads["SE"] = Quad( Box(x+w/2, y+h/2, w/2, h/2), self.color, self.limit, self.depth+1 )
+		self.is_partitioned = True
+		return
+
+	def insertBall(self, ball, quad_name=""):
+		if not self.inBox(ball):
+			return
+
+		if self.is_partitioned:
+			self.sub_quads["NW"].insertBall(ball, quad_name+"_NW")
+			self.sub_quads["NE"].insertBall(ball, quad_name+"_NE")
+			self.sub_quads["SW"].insertBall(ball, quad_name+"_SW")
+			self.sub_quads["SE"].insertBall(ball, quad_name+"_SE")
+		else:
+			if len(self.balls)<self.limit:
+				self.balls.append(ball)
+				ball.tag = quad_name
+			else:
+				self.partition()
+
+				self.balls.append(ball)
+				for _ball in self.balls:
+					self.sub_quads["NW"].insertBall(_ball, quad_name+"_NW")
+					self.sub_quads["NE"].insertBall(_ball, quad_name+"_NE")
+					self.sub_quads["SW"].insertBall(_ball, quad_name+"_SW")
+					self.sub_quads["SE"].insertBall(_ball, quad_name+"_SE")
+				self.balls.clear()
+		return
+
+	def processCollision(self, ball):
+		if not self.is_partitioned:
+			for other_ball in self.balls:
+				if id(ball)==id(other_ball):
+					continue	
+
+				ball.update(other_ball)
+			return
+
+		#print(ball.tag, self.depth+1)
+		try:
+			tag = ball.tag.split("_")[self.depth+1]
+		except:
+			return
+
+		self.sub_quads[tag].processCollision(ball)
+		return
+
+	def update(self):
+		if not self.is_partitioned:
+			for ball in self.balls:
+				ball.update()
+			return
+
+		self.sub_quads["NW"].update()
+		self.sub_quads["NE"].update()
+		self.sub_quads["SW"].update()
+		self.sub_quads["SE"].update()
+		return
+
+	def render(self):
+		if not self.is_partitioned:
+			for ball in self.balls:
+				ball.render()
+
+			pg.draw.rect(WINDOW, GREEN, (self.box.x, self.box.y, self.box.w, self.box.h), 1)
+			return
+
+		self.sub_quads["NW"].render()
+		self.sub_quads["NE"].render()
+		self.sub_quads["SW"].render()
+		self.sub_quads["SE"].render()
+		return
+
+def calcDist(v1, v2):
 	return np.sqrt(np.sum([(i-j)**2 for i, j in zip(v1, v2)]))
 
 def main():
+	quad = Quad(Box(0,0,WIDTH,HEIGHT),GREEN,LIMIT,0)
 
-	balls = generate_balls()
-
-	quad = Quad(balls, HALF_WIDTH, HALF_HEIGHT, 0, 0, "root")
+	balls = [Ball(random.randint(0, WIDTH), random.randint(0, HEIGHT), RADIUS, WHITE) for _ in range(nBall)]
 
 	is_running = True
 	while is_running:
 		for event in pg.event.get():
 			if event.type==pg.QUIT:
 				is_running = False
-				break
+				break	
 
-		WINDOW.fill(GREY)
+		WINDOW.fill(BLACK)	
 
-		quad.resetQuadtree()
-		quad.generateQuadtree()
+		[quad.insertBall(ball, "root") for ball in balls]
+		[quad.processCollision(ball) for ball in balls]
+		
+		quad.render()
+		quad.reset()
 
-		for ball in quad.balls:
-			quad.searchBall(ball, 1)
-
-			ball.update()
-			ball.render()
-
-		pg.display.update()
+		pg.display.flip()
 
 	pg.quit()
 	return
 
-if __name__=="__main__":
+if __name__ == '__main__':
 	WIDTH = 800
-	HEIGHT = 800 
+	HEIGHT = 800
 
-	HALF_WIDTH = int(WIDTH/2)
-	HALF_HEIGHT = int(HEIGHT/2)
+	WHITE = (255,255,255)
+	RED = (255,0,0)
+	GREEN = (0,255,0)
+	BLACK = (0,0,0)
 
-	WHITE = (255, 255, 255)
-	RED = (255, 0, 0)
-	BEIGE = (255, 240, 219)
-	GREEN = (0, 255, 127)
-	BLUE = (0, 191, 255)
-	PURPLE = (238, 130, 238)
-	BLACK = (0, 0, 0)
-	GREY = (20, 20, 20)
-
-	COLORS = [
-		WHITE,
-		RED,
-		BEIGE,
-		GREEN,
-		BLUE,
-		PURPLE
-	]
-
-	nBall = 200
-	RADIUS = 10 
-	THRESHOLD = 2 
-	FORCE_SCALER = 5.0
-	LIGHT_DURATION = 0.1
-
-	SECTIONS = {
-		"NW": [0, 0],
-		"NE": [1, 0],
-		"SW": [0, 1],
-		"SE": [1, 1],
-	}
+	nBall = 100
+	LIMIT = 5
+	RADIUS = 20
 
 	pg.init()
-	WINDOW = pg.display.set_mode((WIDTH, HEIGHT))
-	pg.display.set_caption("Quadtree object collision test")
-
+	WINDOW = pg.display.set_mode((WIDTH, HEIGHT))	
+	pg.display.set_caption("Quadtree")
 	main()
+

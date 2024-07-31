@@ -1,6 +1,7 @@
 import pygame as pg
 import numpy as np
 import random
+import math 
 import time
 
 class Ball:
@@ -8,36 +9,58 @@ class Ball:
 		self.x = x
 		self.y = y
 		self.radius = radius 
-		self.vx = random.choice([-1,1])*0.1
-		self.vy = random.choice([-1,1])*0.1 
+
+		''' initialize normalized velocity '''
+		self.vx = random.choice([-1,1])
+		self.vy = random.choice([-1,1]) 
+		self.vx, self.vy = calcUnitVector(self.vx, self.vy)
+
 		self.color = color
+
+		''' tag is used to search for specific Ball within quadtree '''
 		self.tag = ""
+
+		''' used for lighting duration upon collision with another ball '''
 		self.t0 = time.time()
 		return
 
-	def is_collided(self, other_ball):
+	def isCollided(self, other_ball):
 		x1, y1, x2, y2 = self.x, self.y, other_ball.x, other_ball.y
 		dist = calcDist([x1, y1], [x2, y2])
 		return dist<=self.radius+other_ball.radius
 
-	def update(self, other_ball=None):
-		if not other_ball==None:
-			if self.is_collided(other_ball):
-				self.vx = (self.x-other_ball.x)*0.01
-				self.vy = (self.y-other_ball.y)*0.01
-				self.color = RED
-				self.t0 = time.time()
-
-		if time.time()-self.t0>0.2:	
-			self.color = WHITE
-
-		self.x += self.vx
-		self.y += self.vy
-
+	def fixBoundaryCases(self):
 		if self.x<0 or self.x>WIDTH:
 			self.vx *= -1
 		if self.y<0 or self.y>HEIGHT:
 			self.vy *= -1
+		return
+
+	def update(self, other_ball=None):
+		if not other_ball==None:
+			if self.isCollided(other_ball):
+				''' calculate normalized vector pointing the opposite direction from the collided ball '''
+				self.vx = self.x-other_ball.x
+				self.vy = self.y-other_ball.y
+
+				try:
+					self.vx, self.vy = calcUnitVector(self.vx, self.vy)
+				except Exception as e:
+					pass
+
+				''' ball color changes upon collision '''
+				self.color = RED
+				self.t0 = time.time()
+
+		if time.time()-self.t0>0.2:	
+			''' ball color changes back to the original color '''
+			self.color = WHITE
+
+		''' update the position of the ball '''
+		self.x += self.vx
+		self.y += self.vy
+
+		self.fixBoundaryCases()
 		return
 
 	def render(self):
@@ -54,11 +77,19 @@ class Box:
 
 class Quad:
 	def __init__(self, box, color, limit, depth):
+		''' dimensions of a quad '''
 		self.box = box
 
+		''' color of the quad borders which is different from the ball color '''
 		self.color = color
+
+		''' maximum number of balls that can fit in this specific quad '''
 		self.limit = limit 
+
+		''' represents the number of recursions applied in generating the quadtree '''
 		self.depth = depth 
+
+		''' initialize quadtree data structure for every frame '''
 		self.reset()
 		return
 
@@ -73,12 +104,7 @@ class Quad:
 		}
 		return
 
-	def inBox(self, ball):
-		x, y, w, h = self.box.x, self.box.y, self.box.w, self.box.h 
-		return (ball.x>x   and
-			    ball.x<x+w and
-			    ball.y>y   and
-			    ball.y<y+h)
+
 
 	def partition(self):
 		x, y, w, h = self.box.x, self.box.y, self.box.w, self.box.h 
@@ -90,31 +116,43 @@ class Quad:
 		return
 
 	def insertBall(self, ball, quad_name=""):
-		if not self.inBox(ball):
+		''' skip if the ball is not in this quad '''
+		if not inBox(self.box, ball):
 			return
 
 		if self.is_partitioned:
+			''' if the quad already has generated sub-quads, pass the ball to the sub-quads '''
 			self.sub_quads["NW"].insertBall(ball, quad_name+"_NW")
 			self.sub_quads["NE"].insertBall(ball, quad_name+"_NE")
 			self.sub_quads["SW"].insertBall(ball, quad_name+"_SW")
 			self.sub_quads["SE"].insertBall(ball, quad_name+"_SE")
 		else:
 			if len(self.balls)<self.limit:
+				''' if the ball can still fit in this quad, store the ball and tag it accordingly '''
 				self.balls.append(ball)
 				ball.tag = quad_name
 			else:
+				''' if the ball cannot fit in this quad anymore, generate sub-quads '''
 				self.partition()
 
+				''' pass all the balls stored in this quad to the sub-quads '''
 				self.balls.append(ball)
 				for _ball in self.balls:
 					self.sub_quads["NW"].insertBall(_ball, quad_name+"_NW")
 					self.sub_quads["NE"].insertBall(_ball, quad_name+"_NE")
 					self.sub_quads["SW"].insertBall(_ball, quad_name+"_SW")
 					self.sub_quads["SE"].insertBall(_ball, quad_name+"_SE")
+
+				''' delete all the balls stored in this quad to free up the memory '''
 				self.balls.clear()
 		return
 
 	def processCollision(self, ball):
+		''' 
+		quads that do not have sub-quads are the ones having balls.
+		check collision status against all the balls in the quad.
+		update the physics of current ball accordingly
+		'''
 		if not self.is_partitioned:
 			for other_ball in self.balls:
 				if id(ball)==id(other_ball):
@@ -123,28 +161,18 @@ class Quad:
 				ball.update(other_ball)
 			return
 
-		#print(ball.tag, self.depth+1)
+		''' quadtree fails to find a ball in some cases. buggy logic. '''
 		try:
 			tag = ball.tag.split("_")[self.depth+1]
-		except:
+		except Exception as e:
 			return
 
+		''' check collision recursively '''
 		self.sub_quads[tag].processCollision(ball)
 		return
 
-	def update(self):
-		if not self.is_partitioned:
-			for ball in self.balls:
-				ball.update()
-			return
-
-		self.sub_quads["NW"].update()
-		self.sub_quads["NE"].update()
-		self.sub_quads["SW"].update()
-		self.sub_quads["SE"].update()
-		return
-
 	def render(self):
+		''' render quadtree recursively '''
 		if not self.is_partitioned:
 			for ball in self.balls:
 				ball.render()
@@ -161,6 +189,19 @@ class Quad:
 def calcDist(v1, v2):
 	return np.sqrt(np.sum([(i-j)**2 for i, j in zip(v1, v2)]))
 
+def calcUnitVector(x, y):
+	mag = math.sqrt(x**2+y**2)
+	x /= mag
+	y /= mag
+	return (x, y)
+
+def inBox(box, ball):
+	x, y, w, h = box.x, box.y, box.w, box.h 
+	return (ball.x>x   and
+		    ball.x<x+w and
+		    ball.y>y   and
+		    ball.y<y+h)
+
 def main():
 	quad = Quad(Box(0,0,WIDTH,HEIGHT),GREEN,LIMIT,0)
 
@@ -175,10 +216,15 @@ def main():
 
 		WINDOW.fill(BLACK)	
 
+		''' insert each ball in the quadtree '''
 		[quad.insertBall(ball, "root") for ball in balls]
+
+		''' handle collision and ball position updates '''
 		[quad.processCollision(ball) for ball in balls]
 		
 		quad.render()
+
+		''' reset quadtree data structure for next frame '''
 		quad.reset()
 
 		pg.display.flip()
@@ -187,20 +233,27 @@ def main():
 	return
 
 if __name__ == '__main__':
-	WIDTH = 800
+	WIDTH  = 800
 	HEIGHT = 800
 
 	WHITE = (255,255,255)
-	RED = (255,0,0)
+	RED   = (255,0,0)
 	GREEN = (0,255,0)
+	GREY  = (20,20,20)
 	BLACK = (0,0,0)
 
-	nBall = 100
+	''' number of balls to generate '''
+	nBall = 500
+
+	''' maximum number of balls that can fit in a given quad '''
 	LIMIT = 5
-	RADIUS = 20
+
+	''' ball radius '''
+	RADIUS = 7
 
 	pg.init()
 	WINDOW = pg.display.set_mode((WIDTH, HEIGHT))	
-	pg.display.set_caption("Quadtree")
+	pg.display.set_caption("Quadtree Collision Detection")
+
 	main()
 

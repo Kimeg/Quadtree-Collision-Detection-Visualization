@@ -214,7 +214,7 @@ def main():
 				is_running = False
 				break	
 
-		WINDOW.fill(BLACK)	
+		WINDOW.fill(GREY)	
 
 		''' insert each ball in the quadtree '''
 		[quad.insertBall(ball, "root") for ball in balls]
@@ -239,17 +239,17 @@ if __name__ == '__main__':
 	WHITE = (255,255,255)
 	RED   = (255,0,0)
 	GREEN = (0,255,0)
-	GREY  = (20,20,20)
+	GREY  = (50,50,50)
 	BLACK = (0,0,0)
 
 	''' number of balls to generate '''
-	nBall = 500
+	nBall = 1000
 
 	''' maximum number of balls that can fit in a given quad '''
 	LIMIT = 5
 
 	''' ball radius '''
-	RADIUS = 7
+	RADIUS = 5 
 
 	pg.init()
 	WINDOW = pg.display.set_mode((WIDTH, HEIGHT))	

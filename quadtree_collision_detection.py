@@ -177,7 +177,11 @@ class Quad:
 			for ball in self.balls:
 				ball.render()
 
-			pg.draw.rect(WINDOW, GREEN, (self.box.x, self.box.y, self.box.w, self.box.h), 1)
+			#pg.draw.rect(WINDOW, GREEN, (self.box.x, self.box.y, self.box.w, self.box.h), 1)
+			pg.draw.aaline(WINDOW, GREEN, (self.box.x, self.box.y), (self.box.x+self.box.w, self.box.y))
+			pg.draw.aaline(WINDOW, GREEN, (self.box.x, self.box.y), (self.box.x, self.box.y+self.box.h))
+			pg.draw.aaline(WINDOW, GREEN, (self.box.x+self.box.w, self.box.y), (self.box.x+self.box.w, self.box.y+self.box.h))
+			pg.draw.aaline(WINDOW, GREEN, (self.box.x, self.box.y+self.box.h), (self.box.x+self.box.w, self.box.y+self.box.h))
 			return
 
 		self.sub_quads["NW"].render()
